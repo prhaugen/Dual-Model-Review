@@ -55,14 +55,20 @@ def _history_to_gemini(history: list) -> list:
 def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
                  model: str = "claude-opus-4-8",
                  image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
+                 pdf_bytes: bytes | None = None,
                  history: list | None = None, thinking: bool = True) -> dict:
     client = anthropic.Anthropic()
-    if image_bytes:
-        current_content = [
-            {"type": "image", "source": {"type": "base64", "media_type": image_mime,
-                                         "data": base64.standard_b64encode(image_bytes).decode()}},
-            {"type": "text", "text": prompt},
-        ]
+    if image_bytes or pdf_bytes:
+        blocks = []
+        if pdf_bytes:
+            blocks.append({"type": "document", "source": {"type": "base64",
+                           "media_type": "application/pdf",
+                           "data": base64.standard_b64encode(pdf_bytes).decode()}})
+        if image_bytes:
+            blocks.append({"type": "image", "source": {"type": "base64", "media_type": image_mime,
+                           "data": base64.standard_b64encode(image_bytes).decode()}})
+        blocks.append({"type": "text", "text": prompt})
+        current_content = blocks
     else:
         current_content = prompt
     messages = list(history or []) + [{"role": "user", "content": current_content}]
@@ -86,9 +92,12 @@ def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
 def _call_gemini(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
                  model: str = "gemini-2.5-flash",
                  image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
+                 pdf_bytes: bytes | None = None,
                  history: list | None = None) -> dict:
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     current_parts = []
+    if pdf_bytes:
+        current_parts.append(genai_types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
     if image_bytes:
         current_parts.append(genai_types.Part.from_bytes(data=image_bytes, mime_type=image_mime))
     current_parts.append(genai_types.Part(text=prompt))
@@ -112,12 +121,15 @@ def _call_gemini(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
 
 def _dispatch(provider: str, prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
               model_id: str = "", image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
+              pdf_bytes: bytes | None = None,
               history: list | None = None, thinking: bool = True) -> dict:
     if provider == "claude":
         return _call_claude(prompt, system=system, max_tokens=max_tokens, model=model_id or "claude-opus-4-8",
-                            image_bytes=image_bytes, image_mime=image_mime, history=history, thinking=thinking)
+                            image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
+                            history=history, thinking=thinking)
     return _call_gemini(prompt, system=system, max_tokens=max_tokens, model=model_id or "gemini-2.5-flash",
-                        image_bytes=image_bytes, image_mime=image_mime, history=history)
+                        image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
+                        history=history)
 
 
 def run(user_prompt: str, first_model: str = "claude") -> dict:

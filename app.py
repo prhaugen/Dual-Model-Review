@@ -130,19 +130,45 @@ missing = [k for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY") if not os.getenv(k
 if missing:
     st.warning(f"Missing env vars: {', '.join(missing)}")
 
-# Image uploader — resets after each send via upload_key
+# File uploader — resets after each send via upload_key
 uploaded = st.file_uploader(
-    "Attach an image to your next message (optional)",
-    type=["jpg", "jpeg", "png", "gif", "webp"],
+    "Attach a file to your next message (optional)",
+    type=["jpg", "jpeg", "png", "gif", "webp", "pdf", "txt", "docx"],
     key=f"uploader_{st.session_state.upload_key}",
 )
+
+image_bytes = None
+image_mime  = "image/jpeg"
+pdf_bytes   = None
+doc_text    = None
+
 if uploaded:
-    image_bytes = uploaded.read()
-    image_mime  = uploaded.type
-    st.image(image_bytes, width=240, caption=uploaded.name)
-else:
-    image_bytes = None
-    image_mime  = "image/jpeg"
+    file_bytes = uploaded.read()
+    fname = uploaded.name.lower()
+
+    if uploaded.type.startswith("image/"):
+        image_bytes = file_bytes
+        image_mime  = uploaded.type
+        st.image(image_bytes, width=240, caption=uploaded.name)
+
+    elif fname.endswith(".pdf") or uploaded.type == "application/pdf":
+        pdf_bytes = file_bytes
+        st.info(f"📄 {uploaded.name} attached")
+
+    elif fname.endswith(".txt") or uploaded.type == "text/plain":
+        doc_text = file_bytes.decode("utf-8", errors="replace")
+        st.info(f"📝 {uploaded.name} attached ({len(doc_text):,} chars)")
+
+    elif fname.endswith(".docx"):
+        try:
+            import io
+            from docx import Document as DocxDocument
+            doc_text = "\n".join(
+                p.text for p in DocxDocument(io.BytesIO(file_bytes)).paragraphs if p.text.strip()
+            )
+            st.info(f"📝 {uploaded.name} attached ({len(doc_text):,} chars)")
+        except ImportError:
+            st.error("python-docx not installed. Run: pip install python-docx")
 
 # ── Render conversation history ───────────────────────────────────────────────
 for msg in st.session_state.display:
@@ -157,6 +183,9 @@ for msg in st.session_state.display:
 # ── Chat input ────────────────────────────────────────────────────────────────
 if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
 
+    # Prepend extracted text from TXT/DOCX into the prompt
+    effective_prompt = f"[Attached document]\n{doc_text}\n\n{prompt}" if doc_text else prompt
+
     # Show user message immediately
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -170,11 +199,12 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
         with st.spinner(f"[1/2] {label_map[first_model]} generating…"):
             try:
                 r1 = _dispatch(
-                    first_model, prompt,
+                    first_model, effective_prompt,
                     max_tokens=FIRST_MAX_TOKENS,
                     model_id=model_ids[first_model],
                     image_bytes=image_bytes,
                     image_mime=image_mime,
+                    pdf_bytes=pdf_bytes,
                     history=st.session_state.first_history,
                 )
             except Exception as e:
@@ -185,8 +215,8 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
         st.session_state.first_history.append({"role": "user",      "content": prompt})
         st.session_state.first_history.append({"role": "assistant",  "content": r1["text"]})
 
-        # Call 2: reviewer is always stateless (no history)
-        review_prompt = f"Original question summary: {prompt[:200]}\n\nResponse to review:\n{r1['text']}"
+        # Call 2: reviewer is always stateless (no history), PDF not re-sent
+        review_prompt = f"Original question: {prompt[:200]}\n\nResponse to review:\n{r1['text']}"
         with st.spinner(f"[2/2] {label_map[second_model]} reviewing…"):
             try:
                 r2 = _dispatch(

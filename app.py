@@ -39,6 +39,7 @@ def save_archive(entry):
 
 def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
     import re
+    import warnings
     from fpdf import FPDF
 
     # Strip characters Segoe UI TTF doesn't cover.
@@ -107,7 +108,9 @@ def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
         pdf.cell(0, 5, f"Estimated session cost: ${total_cost:.4f}",
                  new_x="LMARGIN", new_y="NEXT")
 
-    return bytes(pdf.output())
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="MERG NOT subset")
+        return bytes(pdf.output())
 
 def render_cost_metrics(cost_info: dict):
     mc1, mc2, mc3 = st.columns(3)

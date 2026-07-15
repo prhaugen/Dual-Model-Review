@@ -41,12 +41,22 @@ def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
     import re
     from fpdf import FPDF
 
+    # Strip characters Segoe UI TTF doesn't cover.
+    # Raw strings ensure \u escapes reach the regex engine, not Python's string parser.
+    _UNSUPPORTED = re.compile(
+        r'[\u2600-\u27FF'
+        r'\uFE00-\uFE0F'
+        r'\U0001F000-\U0001FFFF]',
+        flags=re.UNICODE
+    )
+
     def strip_md(text: str) -> str:
         text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
         text = re.sub(r'\*(.*?)\*', r'\1', text)
         text = re.sub(r'`{1,3}(.*?)`{1,3}', r'\1', text, flags=re.DOTALL)
         text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
         text = re.sub(r'^\s*[-*+]\s+', '• ', text, flags=re.MULTILINE)
+        text = _UNSUPPORTED.sub('', text)
         return text.strip()
 
     pdf = FPDF()

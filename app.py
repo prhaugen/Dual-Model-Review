@@ -108,7 +108,7 @@ with st.sidebar:
     archives = load_archives()
     if not archives:
         st.caption("No archives yet.")
-    for entry in archives:
+    for i, entry in enumerate(archives):
         ts         = entry.get("timestamp", "")[:16].replace("T", " ")
         turns      = entry.get("turns", [])
         first_user = next((t["content"] for t in turns if t["role"] == "user"), "—")
@@ -124,6 +124,17 @@ with st.sidebar:
                             st.markdown(turn["initial"])
             if entry.get("total_cost"):
                 st.caption(f"Session cost: ${entry['total_cost']:.4f}")
+            if st.button("📂 Load conversation", key=f"load_{i}", use_container_width=True):
+                st.session_state.display = turns
+                # Rebuild first model's history using its original responses
+                st.session_state.first_history = [
+                    {"role": t["role"] if t["role"] == "user" else "assistant",
+                     "content": t["content"] if t["role"] == "user" else t.get("initial", t["content"])}
+                    for t in turns
+                ]
+                st.session_state.total_cost = entry.get("total_cost", 0.0)
+                st.session_state.upload_key += 1
+                st.rerun()
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 missing = [k for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY") if not os.getenv(k)]

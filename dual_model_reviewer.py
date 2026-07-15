@@ -27,6 +27,13 @@ REVIEW_SYSTEM = (
     "refined answer. Be concise."
 )
 
+SYNTHESIS_SYSTEM = (
+    "You are a final synthesis model. You will receive an original question, "
+    "a first AI's answer, and a second AI's review of that answer. "
+    "Weigh both perspectives critically, correct any errors, fill any gaps, "
+    "and deliver the single best definitive answer."
+)
+
 # Pricing in USD per 1M tokens: (input, output)
 PRICING = {
     "claude-opus-4-8":   (5.00, 25.00),

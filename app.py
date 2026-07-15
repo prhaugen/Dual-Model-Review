@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 
 import streamlit as st
-from dual_model_reviewer import _dispatch, FIRST_MAX_TOKENS, REVIEW_MAX_TOKENS, REVIEW_SYSTEM
+from dual_model_reviewer import (_dispatch, FIRST_MAX_TOKENS, REVIEW_MAX_TOKENS,
+                                  REVIEW_SYSTEM, SYNTHESIS_SYSTEM)
 
 ARCHIVE_FILE = os.path.join(os.path.dirname(__file__), "archives.json")
 
@@ -125,12 +126,17 @@ def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
         _ft_log.setLevel(_prev_level)
 
 def render_cost_metrics(cost_info: dict):
-    mc1, mc2, mc3 = st.columns(3)
-    mc1.metric(f"Call 1 · {cost_info['first_label']}", f"${cost_info['c1_cost']:.4f}",
-               f"{cost_info['c1_in']:,} in / {cost_info['c1_out']:,} out", delta_color="off")
-    mc2.metric(f"Call 2 · {cost_info['second_label']}", f"${cost_info['c2_cost']:.4f}",
-               f"{cost_info['c2_in']:,} in / {cost_info['c2_out']:,} out", delta_color="off")
-    mc3.metric("Turn cost", f"${cost_info['c1_cost'] + cost_info['c2_cost']:.4f}")
+    has_c3 = "c3_cost" in cost_info
+    cols = st.columns(4 if has_c3 else 3)
+    cols[0].metric(f"Call 1 · {cost_info['first_label']}", f"${cost_info['c1_cost']:.4f}",
+                   f"{cost_info['c1_in']:,} in / {cost_info['c1_out']:,} out", delta_color="off")
+    cols[1].metric(f"Call 2 · {cost_info['second_label']}", f"${cost_info['c2_cost']:.4f}",
+                   f"{cost_info['c2_in']:,} in / {cost_info['c2_out']:,} out", delta_color="off")
+    if has_c3:
+        cols[2].metric(f"Call 3 · {cost_info['third_label']}", f"${cost_info['c3_cost']:.4f}",
+                       f"{cost_info['c3_in']:,} in / {cost_info['c3_out']:,} out", delta_color="off")
+    total = sum(cost_info.get(k, 0) for k in ("c1_cost", "c2_cost", "c3_cost"))
+    cols[-1].metric("Turn cost", f"${total:.4f}")
 
 # ── Page config + session state ───────────────────────────────────────────────
 st.set_page_config(page_title="Dual Model Reviewer", page_icon="🔍", layout="wide")
@@ -172,6 +178,14 @@ with st.sidebar:
         format_func=lambda x: _ICONS[x],
         horizontal=True,
     )
+    all_three   = st.checkbox("Run all three models",
+                               help="First model answers → second reviews → third synthesizes")
+    if all_three:
+        third_model = next(m for m in _ALL if m not in (first_model, second_model))
+        st.caption(f"Synthesizer: {_ICONS[third_model]}")
+    else:
+        third_model = None
+
     model_ids = {"claude": claude_model_id, "gemini": gemini_model_id, "openai": openai_model_id}
     label_map  = {
         "claude": claude_label.split("(")[0].strip(),
@@ -308,6 +322,9 @@ if uploaded:
 for msg in st.session_state.display:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+        if msg.get("review"):
+            with st.expander(f"Review · {msg.get('review_label', '')}"):
+                st.markdown(msg["review"])
         if msg.get("initial") and msg["initial"] != msg["content"]:
             with st.expander(f"Initial · {msg.get('first_label', '')}"):
                 st.markdown(msg["initial"])
@@ -328,9 +345,11 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
 
     st.session_state.display.append({"role": "user", "content": prompt})
 
+    n_calls = 3 if all_three else 2
+
     # Call 1: first model with full history
     with st.chat_message("assistant"):
-        with st.spinner(f"[1/2] {label_map[first_model]} generating…"):
+        with st.spinner(f"[1/{n_calls}] {label_map[first_model]} generating…"):
             try:
                 r1 = _dispatch(
                     first_model, effective_prompt,
@@ -346,34 +365,56 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
                 st.stop()
 
         # Update first model's history with its own response
-        st.session_state.first_history.append({"role": "user",      "content": prompt})
-        st.session_state.first_history.append({"role": "assistant",  "content": r1["text"]})
+        st.session_state.first_history.append({"role": "user",     "content": prompt})
+        st.session_state.first_history.append({"role": "assistant", "content": r1["text"]})
 
-        # Call 2: reviewer is always stateless (no history), PDF not re-sent
+        # Call 2: reviewer — stateless, no image/PDF re-sent
         review_prompt = f"Original question: {prompt[:200]}\n\nResponse to review:\n{r1['text']}"
-        with st.spinner(f"[2/2] {label_map[second_model]} reviewing…"):
+        with st.spinner(f"[2/{n_calls}] {label_map[second_model]} reviewing…"):
             try:
                 r2 = _dispatch(
                     second_model, review_prompt,
                     system=REVIEW_SYSTEM,
                     max_tokens=REVIEW_MAX_TOKENS,
                     model_id=model_ids[second_model],
-                    image_bytes=image_bytes,
-                    image_mime=image_mime,
                     thinking=True,
                 )
             except Exception as e:
                 st.error(f"Error on call 2: {e}")
                 st.stop()
 
-        st.markdown(r2["text"])
+        # Call 3 (optional): synthesizer sees everything and produces the final answer
+        r3 = None
+        if all_three:
+            synthesis_prompt = (
+                f"Original question: {prompt[:300]}\n\n"
+                f"--- {label_map[first_model]} initial response ---\n{r1['text']}\n\n"
+                f"--- {label_map[second_model]} review ---\n{r2['text']}"
+            )
+            with st.spinner(f"[3/3] {label_map[third_model]} synthesizing…"):
+                try:
+                    r3 = _dispatch(
+                        third_model, synthesis_prompt,
+                        system=SYNTHESIS_SYSTEM,
+                        max_tokens=REVIEW_MAX_TOKENS,
+                        model_id=model_ids[third_model],
+                        thinking=True,
+                    )
+                except Exception as e:
+                    st.error(f"Error on call 3: {e}")
+                    st.stop()
 
-        if r1["text"] != r2["text"]:
+        # Render: final answer is r3 (if all_three) otherwise r2
+        final_r   = r3 if r3 else r2
+        final_lbl = label_map[third_model] if r3 else label_map[second_model]
+        st.markdown(final_r["text"])
+
+        if r3:
+            with st.expander(f"Review · {label_map[second_model]}"):
+                st.markdown(r2["text"])
+        if r1["text"] != final_r["text"]:
             with st.expander(f"Initial · {label_map[first_model]}"):
                 st.markdown(r1["text"])
-
-        turn_cost = r1["cost_usd"] + r2["cost_usd"]
-        st.session_state.total_cost += turn_cost
 
         cost_info = {
             "first_label":  label_map[first_model],
@@ -381,16 +422,28 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
             "c1_cost": r1["cost_usd"], "c1_in": r1["input_tokens"], "c1_out": r1["output_tokens"],
             "c2_cost": r2["cost_usd"], "c2_in": r2["input_tokens"], "c2_out": r2["output_tokens"],
         }
+        if r3:
+            cost_info.update({
+                "third_label": label_map[third_model],
+                "c3_cost": r3["cost_usd"], "c3_in": r3["input_tokens"], "c3_out": r3["output_tokens"],
+            })
+
+        turn_cost = sum(r["cost_usd"] for r in [r1, r2] + ([r3] if r3 else []))
+        st.session_state.total_cost += turn_cost
         render_cost_metrics(cost_info)
         st.caption(f"Session total: ${st.session_state.total_cost:.4f}")
 
-    st.session_state.display.append({
+    display_entry = {
         "role":        "assistant",
-        "content":     r2["text"],
+        "content":     final_r["text"],
         "initial":     r1["text"],
         "first_label": label_map[first_model],
         "cost_info":   cost_info,
-    })
+    }
+    if r3:
+        display_entry["review"]       = r2["text"]
+        display_entry["review_label"] = label_map[second_model]
+    st.session_state.display.append(display_entry)
 
     # Reset file uploader so image doesn't re-attach to next message
     st.session_state.upload_key += 1

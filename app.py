@@ -37,6 +37,68 @@ def save_archive(entry):
     with open(ARCHIVE_FILE, "w", encoding="utf-8") as f:
         json.dump(archives, f, indent=2, ensure_ascii=False)
 
+def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
+    import re
+    from fpdf import FPDF
+
+    def strip_md(text: str) -> str:
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.*?)\*', r'\1', text)
+        text = re.sub(r'`{1,3}(.*?)`{1,3}', r'\1', text, flags=re.DOTALL)
+        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*[-*+]\s+', '• ', text, flags=re.MULTILINE)
+        return text.strip()
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    fonts = "C:\\Windows\\Fonts\\"
+    pdf.add_font("Segoe",  fname=fonts + "segoeui.ttf")
+    pdf.add_font("Segoe",  style="B", fname=fonts + "segoeuib.ttf")
+    pdf.add_font("Segoe",  style="I", fname=fonts + "segoeuii.ttf")
+
+    # Header
+    pdf.set_font("Segoe", "B", 15)
+    pdf.cell(0, 10, "Dual Model Reviewer", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Segoe", "I", 9)
+    pdf.set_text_color(130, 130, 130)
+    pdf.cell(0, 5, f"Exported {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+             new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(6)
+
+    for msg in turns:
+        if msg["role"] == "user":
+            pdf.set_fill_color(232, 242, 255)
+            pdf.set_font("Segoe", "B", 10)
+            pdf.cell(0, 7, "You", new_x="LMARGIN", new_y="NEXT", fill=True)
+            pdf.set_font("Segoe", "", 10)
+            pdf.multi_cell(0, 5.5, strip_md(msg["content"]))
+        else:
+            pdf.set_fill_color(232, 255, 242)
+            pdf.set_font("Segoe", "B", 10)
+            pdf.cell(0, 7, "Assistant", new_x="LMARGIN", new_y="NEXT", fill=True)
+            pdf.set_font("Segoe", "", 10)
+            pdf.multi_cell(0, 5.5, strip_md(msg["content"]))
+            if msg.get("initial") and msg["initial"] != msg["content"]:
+                pdf.ln(1)
+                pdf.set_font("Segoe", "I", 9)
+                pdf.set_text_color(110, 110, 110)
+                pdf.cell(0, 5, f"Initial response ({msg.get('first_label', '')})",
+                         new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 5, strip_md(msg["initial"]))
+                pdf.set_text_color(0, 0, 0)
+        pdf.ln(4)
+
+    if total_cost > 0:
+        pdf.set_font("Segoe", "I", 9)
+        pdf.set_text_color(130, 130, 130)
+        pdf.cell(0, 5, f"Estimated session cost: ${total_cost:.4f}",
+                 new_x="LMARGIN", new_y="NEXT")
+
+    return bytes(pdf.output())
+
 def render_cost_metrics(cost_info: dict):
     mc1, mc2, mc3 = st.columns(3)
     mc1.metric(f"Call 1 · {cost_info['first_label']}", f"${cost_info['c1_cost']:.4f}",
@@ -103,6 +165,16 @@ with st.sidebar:
         })
         st.success("Conversation archived.")
 
+    if st.session_state.display:
+        try:
+            pdf_data = generate_pdf(st.session_state.display, st.session_state.total_cost)
+            ts_str = datetime.now().strftime("%Y%m%d_%H%M")
+            st.download_button("📄 Export PDF", data=pdf_data,
+                               file_name=f"conversation_{ts_str}.pdf",
+                               mime="application/pdf", use_container_width=True)
+        except Exception as e:
+            st.caption(f"PDF error: {e}")
+
     st.divider()
     st.header("Archives")
     archives = load_archives()
@@ -124,7 +196,17 @@ with st.sidebar:
                             st.markdown(turn["initial"])
             if entry.get("total_cost"):
                 st.caption(f"Session cost: ${entry['total_cost']:.4f}")
-            if st.button("📂 Load conversation", key=f"load_{i}", use_container_width=True):
+            arc_col1, arc_col2 = st.columns(2)
+            try:
+                arc_pdf = generate_pdf(turns, entry.get("total_cost", 0.0))
+                ts_slug = entry.get("timestamp", "")[:10]
+                arc_col2.download_button("📄 PDF", data=arc_pdf,
+                                         file_name=f"conversation_{ts_slug}.pdf",
+                                         mime="application/pdf",
+                                         key=f"pdf_{i}", use_container_width=True)
+            except Exception:
+                pass
+            if arc_col1.button("📂 Load", key=f"load_{i}", use_container_width=True):
                 st.session_state.display = turns
                 # Rebuild first model's history using its original responses
                 st.session_state.first_history = [

@@ -1,9 +1,9 @@
 """
-Dual-model reviewer: sends your prompt to Claude or Gemini first,
-then passes the response to the other model for review/validation.
+Dual-model reviewer: sends your prompt to Claude, Gemini, or ChatGPT first,
+then passes the response to another model for review/validation.
 
-Install:  pip install anthropic google-genai
-Env vars: ANTHROPIC_API_KEY, GEMINI_API_KEY
+Install:  pip install anthropic google-genai openai
+Env vars: ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 """
 
 import os
@@ -12,7 +12,9 @@ import base64
 import anthropic
 
 sys.path.insert(0, r"C:\Python Scripts")
-from api_usage_tracker import log_from_anthropic_response, log_from_gemini_response
+from api_usage_tracker import (log_from_anthropic_response,
+                                log_from_gemini_response,
+                                log_from_openai_response)
 from google import genai
 from google.genai import types as genai_types
 
@@ -33,6 +35,10 @@ PRICING = {
     "gemini-2.5-flash":  (0.30,  2.50),
     "gemini-2.5-pro":    (1.25, 10.00),
     "gemini-3.5-flash":  (0.30,  2.50),
+    "gpt-4o":            (2.50, 10.00),
+    "gpt-4o-mini":       (0.15,  0.60),
+    "gpt-4.1":           (2.00,  8.00),
+    "gpt-4.1-mini":      (0.40,  1.60),
 }
 
 def _cost(model: str, in_tok: int, out_tok: int) -> float:
@@ -119,6 +125,41 @@ def _call_gemini(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
     return {"text": response.text, "input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _cost(model, in_tok, out_tok)}
 
 
+def _call_openai(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
+                 model: str = "gpt-4o",
+                 image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
+                 pdf_bytes: bytes | None = None,
+                 history: list | None = None) -> dict:
+    from openai import OpenAI
+    client = OpenAI()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    for msg in (history or []):
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    if image_bytes:
+        b64 = base64.standard_b64encode(image_bytes).decode()
+        user_content = [
+            {"type": "image_url", "image_url": {"url": f"data:{image_mime};base64,{b64}"}},
+            {"type": "text", "text": prompt},
+        ]
+    else:
+        if pdf_bytes:
+            prompt = "[PDF attached — not supported for OpenAI in this integration]\n\n" + prompt
+        user_content = prompt
+    messages.append({"role": "user", "content": user_content})
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    text    = response.choices[0].message.content or ""
+    in_tok  = response.usage.prompt_tokens
+    out_tok = response.usage.completion_tokens
+    log_from_openai_response(response, model=model, label="dual_model_reviewer")
+    return {"text": text, "input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": _cost(model, in_tok, out_tok)}
+
+
 def _dispatch(provider: str, prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
               model_id: str = "", image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
               pdf_bytes: bytes | None = None,
@@ -127,6 +168,10 @@ def _dispatch(provider: str, prompt: str, system: str = "", max_tokens: int = FI
         return _call_claude(prompt, system=system, max_tokens=max_tokens, model=model_id or "claude-opus-4-8",
                             image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
                             history=history, thinking=thinking)
+    if provider == "openai":
+        return _call_openai(prompt, system=system, max_tokens=max_tokens, model=model_id or "gpt-4o",
+                            image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
+                            history=history)
     return _call_gemini(prompt, system=system, max_tokens=max_tokens, model=model_id or "gemini-2.5-flash",
                         image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
                         history=history)

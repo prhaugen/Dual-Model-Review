@@ -17,6 +17,12 @@ GEMINI_MODELS = {
     "Gemini 2.5 Pro  (capable)":   "gemini-2.5-pro",
     "Gemini 3.5 Flash  (latest)":  "gemini-3.5-flash",
 }
+OPENAI_MODELS = {
+    "GPT-4o  (recommended)": "gpt-4o",
+    "GPT-4o mini  (fastest)": "gpt-4o-mini",
+    "GPT-4.1":                "gpt-4.1",
+    "GPT-4.1 mini":           "gpt-4.1-mini",
+}
 
 def load_archives():
     if not os.path.exists(ARCHIVE_FILE):
@@ -143,22 +149,34 @@ for key, default in [
 with st.sidebar:
     st.header("Settings")
 
-    claude_label = st.selectbox("Claude model", list(CLAUDE_MODELS))
-    gemini_label = st.selectbox("Gemini model", list(GEMINI_MODELS))
+    claude_label  = st.selectbox("Claude model",  list(CLAUDE_MODELS))
+    gemini_label  = st.selectbox("Gemini model",  list(GEMINI_MODELS))
+    openai_label  = st.selectbox("ChatGPT model", list(OPENAI_MODELS))
     claude_model_id = CLAUDE_MODELS[claude_label]
     gemini_model_id = GEMINI_MODELS[gemini_label]
+    openai_model_id = OPENAI_MODELS[openai_label]
+
+    _ICONS = {"claude": "🟣 Claude", "gemini": "🔵 Gemini", "openai": "🟢 ChatGPT"}
+    _ALL   = ["claude", "gemini", "openai"]
 
     first_model = st.radio(
         "Which model answers first?",
-        options=["claude", "gemini"],
-        format_func=lambda x: "🟣 Claude" if x == "claude" else "🔵 Gemini",
+        options=_ALL,
+        format_func=lambda x: _ICONS[x],
         horizontal=True,
     )
-    second_model = "gemini" if first_model == "claude" else "claude"
-    model_ids = {"claude": claude_model_id, "gemini": gemini_model_id}
+    reviewer_options = [m for m in _ALL if m != first_model]
+    second_model = st.radio(
+        "Reviewer model?",
+        options=reviewer_options,
+        format_func=lambda x: _ICONS[x],
+        horizontal=True,
+    )
+    model_ids = {"claude": claude_model_id, "gemini": gemini_model_id, "openai": openai_model_id}
     label_map  = {
         "claude": claude_label.split("(")[0].strip(),
         "gemini": gemini_label.split("(")[0].strip(),
+        "openai": openai_label.split("(")[0].strip(),
     }
 
     st.divider()
@@ -242,7 +260,7 @@ if st.session_state.pending_load is not None:
     st.session_state.pending_load = None
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-missing = [k for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY") if not os.getenv(k)]
+missing = [k for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY") if not os.getenv(k)]
 if missing:
     st.warning(f"Missing env vars: {', '.join(missing)}")
 

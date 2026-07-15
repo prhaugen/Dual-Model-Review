@@ -11,7 +11,7 @@ import sys
 import base64
 import anthropic
 
-sys.path.insert(0, r"C:\Python Scripts")
+sys.path.insert(0, r"C:\Projects\AI API Usage Tracker")
 from api_usage_tracker import (log_from_anthropic_response,
                                 log_from_gemini_response,
                                 log_from_openai_response)

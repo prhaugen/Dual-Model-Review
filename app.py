@@ -1,4 +1,4 @@
-import sys, os, json
+import sys, os, json, uuid
 from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -39,8 +39,15 @@ def load_archives():
     return []
 
 def save_archive(entry):
+    """Upsert by conversation_id; insert at front if new."""
     archives = load_archives()
-    archives.insert(0, entry)
+    cid = entry.get("conversation_id")
+    for i, a in enumerate(archives):
+        if cid and a.get("conversation_id") == cid:
+            archives[i] = entry
+            break
+    else:
+        archives.insert(0, entry)
     with open(ARCHIVE_FILE, "w", encoding="utf-8") as f:
         json.dump(archives, f, indent=2, ensure_ascii=False)
 
@@ -142,11 +149,12 @@ def render_cost_metrics(cost_info: dict):
 st.set_page_config(page_title="Dual Model Reviewer", page_icon="🔍", layout="wide")
 
 for key, default in [
-    ("first_history", []),   # neutral [{role, content}] sent to first model each turn
-    ("display", []),         # [{role, content, initial?, cost_info?}] for UI
+    ("first_history", []),      # neutral [{role, content}] sent to first model each turn
+    ("display", []),            # [{role, content, initial?, cost_info?}] for UI
     ("total_cost", 0.0),
-    ("upload_key", 0),       # increment to reset file uploader after send
-    ("pending_load", None),  # archive entry waiting to be applied after sidebar closes
+    ("upload_key", 0),          # increment to reset file uploader after send
+    ("pending_load", None),     # archive entry waiting to be applied after sidebar closes
+    ("conversation_id", None),  # UUID for the current conversation; set on first turn
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -198,24 +206,13 @@ with st.sidebar:
     if st.session_state.total_cost > 0:
         st.metric("Session cost", f"${st.session_state.total_cost:.4f}")
 
-    btn_col1, btn_col2 = st.columns(2)
-    if btn_col1.button("🗑 New chat", use_container_width=True):
+    if st.button("🗑 New chat", use_container_width=True):
         st.session_state.first_history = []
         st.session_state.display = []
         st.session_state.total_cost = 0.0
         st.session_state.upload_key += 1
+        st.session_state.conversation_id = None
         st.rerun()
-
-    if btn_col2.button("📥 Archive", use_container_width=True,
-                       disabled=not st.session_state.display):
-        save_archive({
-            "timestamp":   datetime.now(timezone.utc).isoformat(),
-            "first_model": first_model,
-            "model_ids":   model_ids,
-            "turns":       st.session_state.display,
-            "total_cost":  st.session_state.total_cost,
-        })
-        st.success("Conversation archived.")
 
     if st.session_state.display:
         try:
@@ -270,6 +267,7 @@ if st.session_state.pending_load is not None:
         for t in _turns
     ]
     st.session_state.total_cost = _e.get("total_cost", 0.0)
+    st.session_state.conversation_id = _e.get("conversation_id")
     st.session_state.upload_key += 1
     st.session_state.pending_load = None
 
@@ -447,6 +445,18 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
         display_entry["review"]       = r2["text"]
         display_entry["review_label"] = label_map[second_model]
     st.session_state.display.append(display_entry)
+
+    # Auto-save after every turn (upserts the same entry throughout the conversation)
+    if st.session_state.conversation_id is None:
+        st.session_state.conversation_id = str(uuid.uuid4())
+    save_archive({
+        "conversation_id": st.session_state.conversation_id,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+        "first_model":     first_model,
+        "model_ids":       model_ids,
+        "turns":           st.session_state.display,
+        "total_cost":      st.session_state.total_cost,
+    })
 
     # Reset file uploader so image doesn't re-attach to next message
     st.session_state.upload_key += 1

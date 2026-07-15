@@ -301,7 +301,10 @@ if uploaded:
 
     elif fname.endswith(".pdf") or uploaded.type == "application/pdf":
         pdf_bytes = file_bytes
-        st.info(f"📄 {uploaded.name} attached")
+        msg_text = f"📄 {uploaded.name} attached"
+        if first_model == "openai":
+            msg_text += " — note: ChatGPT will skip the PDF; use Claude or Gemini as the first model to process it"
+        st.info(msg_text)
 
     elif fname.endswith(".txt") or uploaded.type == "text/plain":
         doc_text = file_bytes.decode("utf-8", errors="replace")

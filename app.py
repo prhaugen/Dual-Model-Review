@@ -39,7 +39,7 @@ def save_archive(entry):
 
 def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
     import re
-    import warnings
+    import logging
     from fpdf import FPDF
 
     # Strip characters Segoe UI TTF doesn't cover.
@@ -108,9 +108,15 @@ def generate_pdf(turns: list, total_cost: float = 0.0) -> bytes:
         pdf.cell(0, 5, f"Estimated session cost: ${total_cost:.4f}",
                  new_x="LMARGIN", new_y="NEXT")
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="MERG NOT subset")
+    # fontTools.subset logs "MERG NOT subset; dropped" via logging.warning for every
+    # font export — harmless but noisy. Silence just for the duration of output().
+    _ft_log = logging.getLogger("fontTools.subset")
+    _prev_level = _ft_log.level
+    _ft_log.setLevel(logging.ERROR)
+    try:
         return bytes(pdf.output())
+    finally:
+        _ft_log.setLevel(_prev_level)
 
 def render_cost_metrics(cost_info: dict):
     mc1, mc2, mc3 = st.columns(3)

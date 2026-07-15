@@ -204,30 +204,28 @@ with st.sidebar:
         ts         = entry.get("timestamp", "")[:16].replace("T", " ")
         turns      = entry.get("turns", [])
         first_user = next((t["content"] for t in turns if t["role"] == "user"), "—")
-        label      = f"{ts} · {first_user[:32]}{'…' if len(first_user) > 32 else ''}"
-        with st.expander(label):
+        short      = first_user[:40] + ("…" if len(first_user) > 40 else "")
+        # Clicking the button IS the load action
+        if st.button(f"📂 {ts}\n{short}", key=f"load_{i}", use_container_width=True):
+            st.session_state.pending_load = entry
+        # Optional: preview + PDF export in a collapsible section below
+        with st.expander("Preview / PDF"):
             for turn in turns:
                 if turn["role"] == "user":
-                    st.markdown(f"**You:** {turn['content']}")
+                    st.markdown(f"**You:** {turn['content'][:300]}")
                 else:
-                    st.markdown(turn["content"])
-                    if turn.get("initial") and turn["initial"] != turn["content"]:
-                        with st.expander("Initial response"):
-                            st.markdown(turn["initial"])
+                    st.markdown(turn["content"][:300] + ("…" if len(turn["content"]) > 300 else ""))
             if entry.get("total_cost"):
-                st.caption(f"Session cost: ${entry['total_cost']:.4f}")
-            arc_col1, arc_col2 = st.columns(2)
+                st.caption(f"Cost: ${entry['total_cost']:.4f}")
             try:
                 arc_pdf = generate_pdf(turns, entry.get("total_cost", 0.0))
                 ts_slug = entry.get("timestamp", "")[:10]
-                arc_col2.download_button("📄 PDF", data=arc_pdf,
-                                         file_name=f"conversation_{ts_slug}.pdf",
-                                         mime="application/pdf",
-                                         key=f"pdf_{i}", use_container_width=True)
+                st.download_button("📄 Export PDF", data=arc_pdf,
+                                   file_name=f"conversation_{ts_slug}.pdf",
+                                   mime="application/pdf",
+                                   key=f"pdf_{i}", use_container_width=True)
             except Exception:
                 pass
-            if arc_col1.button("📂 Load", key=f"load_{i}", use_container_width=True):
-                st.session_state.pending_load = entry
 
 # ── Apply pending archive load (must happen before main area renders) ─────────
 if st.session_state.pending_load is not None:

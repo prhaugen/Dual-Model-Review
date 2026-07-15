@@ -158,7 +158,7 @@ def _call_openai(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
     response = client.chat.completions.create(
         model=model,
         messages=messages,
-        max_tokens=max_tokens,
+        max_tokens=min(max_tokens, 16384),  # OpenAI hard cap
     )
     text    = response.choices[0].message.content or ""
     in_tok  = response.usage.prompt_tokens

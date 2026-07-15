@@ -128,6 +128,7 @@ for key, default in [
     ("display", []),         # [{role, content, initial?, cost_info?}] for UI
     ("total_cost", 0.0),
     ("upload_key", 0),       # increment to reset file uploader after send
+    ("pending_load", None),  # archive entry waiting to be applied after sidebar closes
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -220,16 +221,21 @@ with st.sidebar:
             except Exception:
                 pass
             if arc_col1.button("📂 Load", key=f"load_{i}", use_container_width=True):
-                st.session_state.display = turns
-                # Rebuild first model's history using its original responses
-                st.session_state.first_history = [
-                    {"role": t["role"] if t["role"] == "user" else "assistant",
-                     "content": t["content"] if t["role"] == "user" else t.get("initial", t["content"])}
-                    for t in turns
-                ]
-                st.session_state.total_cost = entry.get("total_cost", 0.0)
-                st.session_state.upload_key += 1
-                st.rerun()
+                st.session_state.pending_load = entry
+
+# ── Apply pending archive load (must happen before main area renders) ─────────
+if st.session_state.pending_load is not None:
+    _e = st.session_state.pending_load
+    _turns = _e.get("turns", [])
+    st.session_state.display = _turns
+    st.session_state.first_history = [
+        {"role": "user" if t["role"] == "user" else "assistant",
+         "content": t["content"] if t["role"] == "user" else t.get("initial", t["content"])}
+        for t in _turns
+    ]
+    st.session_state.total_cost = _e.get("total_cost", 0.0)
+    st.session_state.upload_key += 1
+    st.session_state.pending_load = None
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 missing = [k for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY") if not os.getenv(k)]

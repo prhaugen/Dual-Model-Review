@@ -369,8 +369,23 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
         st.session_state.first_history.append({"role": "user",     "content": prompt})
         st.session_state.first_history.append({"role": "assistant", "content": r1["text"]})
 
-        # Call 2: reviewer — stateless, no image/PDF re-sent
-        review_prompt = f"Original question: {prompt[:200]}\n\nResponse to review:\n{r1['text']}"
+        # Build conversation history context for reviewer and synthesizer.
+        # first_history now includes the current turn (appended above), so [:-2] is prior turns.
+        prior_turns = st.session_state.first_history[:-2]
+        if prior_turns:
+            history_block = "## Conversation history\n" + "\n\n".join(
+                f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+                for m in prior_turns
+            ) + "\n\n---\n\n"
+        else:
+            history_block = ""
+
+        # Call 2: reviewer — stateless per-turn but receives full conversation context
+        review_prompt = (
+            f"{history_block}"
+            f"## Current question\n{prompt}\n\n"
+            f"## Response to review\n{r1['text']}"
+        )
         with st.spinner(f"[2/{n_calls}] {label_map[second_model]} reviewing…"):
             try:
                 r2 = _dispatch(
@@ -388,7 +403,8 @@ if prompt := st.chat_input("Ask anything…", disabled=bool(missing)):
         r3 = None
         if all_three:
             synthesis_prompt = (
-                f"Original question: {prompt[:300]}\n\n"
+                f"{history_block}"
+                f"## Current question\n{prompt}\n\n"
                 f"--- {label_map[first_model]} initial response ---\n{r1['text']}\n\n"
                 f"--- {label_map[second_model]} review ---\n{r2['text']}"
             )

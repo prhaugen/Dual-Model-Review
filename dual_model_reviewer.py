@@ -9,6 +9,7 @@ Env vars: ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 import os
 import sys
 import base64
+import time
 import anthropic
 
 sys.path.insert(0, r"C:\Projects\AI API Usage Tracker")
@@ -53,6 +54,19 @@ def _cost(model: str, in_tok: int, out_tok: int) -> float:
     return (in_tok * in_rate + out_tok * out_rate) / 1_000_000
 
 
+def _retry(fn, retries=3, base_delay=2.0, retryable_codes=(429, 529)):
+    """Call fn(); on a retryable HTTP error code retry with exponential backoff."""
+    for attempt in range(retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            code = getattr(e, "status_code", None)
+            if code in retryable_codes and attempt < retries:
+                time.sleep(base_delay * (2 ** attempt))
+            else:
+                raise
+
+
 def _history_to_gemini(history: list) -> list:
     """Convert [{role: user/assistant, content: str}] to Gemini Content objects."""
     result = []
@@ -94,7 +108,7 @@ def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
         kwargs["thinking"] = {"type": "adaptive"}
     if system:
         kwargs["system"] = system
-    response = client.messages.create(**kwargs)
+    response = _retry(lambda: client.messages.create(**kwargs))
     text = next(b.text for b in response.content if b.type == "text")
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
@@ -155,11 +169,11 @@ def _call_openai(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
             prompt = "[PDF attached — not supported for OpenAI in this integration]\n\n" + prompt
         user_content = prompt
     messages.append({"role": "user", "content": user_content})
-    response = client.chat.completions.create(
+    response = _retry(lambda: client.chat.completions.create(
         model=model,
         messages=messages,
         max_tokens=min(max_tokens, 16384),  # OpenAI hard cap
-    )
+    ))
     text    = response.choices[0].message.content or ""
     in_tok  = response.usage.prompt_tokens
     out_tok = response.usage.completion_tokens

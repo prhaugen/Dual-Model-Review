@@ -10,9 +10,9 @@ ARCHIVE_FILE = os.path.join(os.path.dirname(__file__), "archives.json")
 
 CLAUDE_MODELS = {
     "Fable 5  (most capable)": "claude-fable-5",
-    "Opus 4.8  (powerful)":    "claude-opus-4-8",
+    "Opus 5  (powerful)":      "claude-opus-5",
     "Sonnet 5  (balanced)":    "claude-sonnet-5",
-    "Haiku 4.5  (fastest)":    "claude-haiku-4-5",
+    "Haiku 4.5  (fastest)":    "claude-haiku-4-5-20251001",
 }
 GEMINI_MODELS = {
     "Gemini 2.5 Flash  (default)": "gemini-2.5-flash",

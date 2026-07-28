@@ -37,11 +37,14 @@ SYNTHESIS_SYSTEM = (
 
 # Pricing in USD per 1M tokens: (input, output)
 PRICING = {
-    "claude-fable-5":    (10.00, 50.00),
-    "claude-opus-4-8":   (5.00,  25.00),
-    "claude-sonnet-5":   (3.00,  15.00),
-    "claude-sonnet-4-6": (3.00,  15.00),
-    "claude-haiku-4-5":  (1.00,   5.00),
+    "claude-fable-5":           (10.00, 50.00),
+    "claude-opus-5":            (5.00,  25.00),
+    "claude-sonnet-5":          (3.00,  15.00),
+    "claude-haiku-4-5-20251001":(1.00,   5.00),
+    # legacy — kept for archived conversation cost display
+    "claude-opus-4-8":          (5.00,  25.00),
+    "claude-sonnet-4-6":        (3.00,  15.00),
+    "claude-haiku-4-5":         (1.00,   5.00),
     "gemini-2.5-flash":  (0.30,  2.50),
     "gemini-2.5-pro":    (1.25, 10.00),
     "gemini-3.5-flash":  (0.30,  2.50),
@@ -82,7 +85,7 @@ def _history_to_gemini(history: list) -> list:
 
 
 def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKENS,
-                 model: str = "claude-opus-4-8",
+                 model: str = "claude-opus-5",
                  image_bytes: bytes | None = None, image_mime: str = "image/jpeg",
                  pdf_bytes: bytes | None = None,
                  history: list | None = None, thinking: bool = True) -> dict:
@@ -191,7 +194,7 @@ def _dispatch(provider: str, prompt: str, system: str = "", max_tokens: int = FI
               pdf_bytes: bytes | None = None,
               history: list | None = None, thinking: bool = True) -> dict:
     if provider == "claude":
-        return _call_claude(prompt, system=system, max_tokens=max_tokens, model=model_id or "claude-opus-4-8",
+        return _call_claude(prompt, system=system, max_tokens=max_tokens, model=model_id or "claude-opus-5",
                             image_bytes=image_bytes, image_mime=image_mime, pdf_bytes=pdf_bytes,
                             history=history, thinking=thinking)
     if provider == "openai":

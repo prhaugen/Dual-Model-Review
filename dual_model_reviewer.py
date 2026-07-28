@@ -116,6 +116,12 @@ def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
     response = _retry(lambda: client.messages.create(**kwargs))
     text_blocks = [b.text for b in response.content if b.type == "text"]
     if not text_blocks:
+        if response.stop_reason == "refusal" and model == "claude-fable-5":
+            # Fable 5 declined; fall back to Opus 5 transparently
+            return _call_claude(prompt, system=system, max_tokens=max_tokens,
+                                model="claude-opus-5", image_bytes=image_bytes,
+                                image_mime=image_mime, pdf_bytes=pdf_bytes,
+                                history=history, thinking=thinking)
         raise RuntimeError(f"Model declined to respond (stop_reason: {response.stop_reason})")
     text = text_blocks[0]
     in_tok  = response.usage.input_tokens

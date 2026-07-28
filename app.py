@@ -9,9 +9,10 @@ from dual_model_reviewer import (_dispatch, FIRST_MAX_TOKENS, REVIEW_MAX_TOKENS,
 ARCHIVE_FILE = os.path.join(os.path.dirname(__file__), "archives.json")
 
 CLAUDE_MODELS = {
-    "Opus 4.8  (most capable)": "claude-opus-4-8",
-    "Sonnet 4.6  (balanced)":   "claude-sonnet-4-6",
-    "Haiku 4.5  (fastest)":     "claude-haiku-4-5",
+    "Fable 5  (most capable)": "claude-fable-5",
+    "Opus 4.8  (powerful)":    "claude-opus-4-8",
+    "Sonnet 5  (balanced)":    "claude-sonnet-5",
+    "Haiku 4.5  (fastest)":    "claude-haiku-4-5",
 }
 GEMINI_MODELS = {
     "Gemini 2.5 Flash  (default)": "gemini-2.5-flash",

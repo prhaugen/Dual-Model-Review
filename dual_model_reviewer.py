@@ -37,9 +37,11 @@ SYNTHESIS_SYSTEM = (
 
 # Pricing in USD per 1M tokens: (input, output)
 PRICING = {
-    "claude-opus-4-8":   (5.00, 25.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-haiku-4-5":  (1.00,  5.00),
+    "claude-fable-5":    (10.00, 50.00),
+    "claude-opus-4-8":   (5.00,  25.00),
+    "claude-sonnet-5":   (3.00,  15.00),
+    "claude-sonnet-4-6": (3.00,  15.00),
+    "claude-haiku-4-5":  (1.00,   5.00),
     "gemini-2.5-flash":  (0.30,  2.50),
     "gemini-2.5-pro":    (1.25, 10.00),
     "gemini-3.5-flash":  (0.30,  2.50),
@@ -109,7 +111,10 @@ def _call_claude(prompt: str, system: str = "", max_tokens: int = FIRST_MAX_TOKE
     if system:
         kwargs["system"] = system
     response = _retry(lambda: client.messages.create(**kwargs))
-    text = next(b.text for b in response.content if b.type == "text")
+    text_blocks = [b.text for b in response.content if b.type == "text"]
+    if not text_blocks:
+        raise RuntimeError(f"Model declined to respond (stop_reason: {response.stop_reason})")
+    text = text_blocks[0]
     in_tok  = response.usage.input_tokens
     out_tok = response.usage.output_tokens
     log_from_anthropic_response(response, label="dual_model_reviewer")
